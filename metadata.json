@@ -1,0 +1,7 @@
+{
+  "name": "Asistente Virtual Gemini",
+  "description": "Un chatbot de asistente virtual impulsado por la API de Gemini, diseñado para mantener conversaciones fluidas y útiles. Cuenta con una interfaz de chat elegante y receptiva con transmisión de respuestas en tiempo real.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
