@@ -64,7 +64,7 @@ const App: React.FC = () => {
         body: JSON.stringify({
           // Tu backend original esperaba un 'model_id' y un 'message'
           // Puedes ajustar el model_id si tu backend lo requiere
-          model_id: "google/gemini-pro", 
+          model_id: "microsoft/DialoGPT-medium", 
           message: inputText,
         }),
       });
