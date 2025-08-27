@@ -1,12 +1,14 @@
+// src/App.tsx - CÓDIGO ACTUALIZADO
 
-import React, { useState, useEffect, useRef } from 'react';
-import type { Chat } from '@google/genai';
+import React, { useState, useEffect } from 'react';
 import { Sender, type Message } from './types';
-import { startChatSession } from './services/geminiService';
 import Header from './components/Header';
 import ChatWindow from './components/ChatWindow';
 import MessageInput from './components/MessageInput';
 import TypingIndicator from './components/TypingIndicator';
+
+// Esta variable ya la tenías, se asegura de usar la URL de tu backend en Render
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 const getInitialMessages = (): Message[] => {
   try {
@@ -18,13 +20,13 @@ const getInitialMessages = (): Message[] => {
       }
     }
   } catch (error) {
-    console.error('Failed to parse messages from localStorage', error);
+    console.error('Fallo al leer los mensajes del localStorage', error);
     localStorage.removeItem('chat_messages');
   }
   return [
     {
       id: 'init',
-      text: '¡Hola! Soy tu asistente virtual Gemini. ¿En qué puedo ayudarte hoy?',
+      text: '¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?',
       sender: Sender.BOT,
     },
   ];
@@ -33,39 +35,16 @@ const getInitialMessages = (): Message[] => {
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const chatRef = useRef<Chat | null>(null);
 
   useEffect(() => {
-    const initializeChat = async () => {
-      try {
-        const chat = await startChatSession();
-        chatRef.current = chat;
-      } catch (error) {
-        console.error('Failed to initialize chat session:', error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: 'error-init',
-            text: 'Lo siento, no pude conectarme con el asistente. Por favor, verifica tu configuración e inténtalo de nuevo.',
-            sender: Sender.BOT,
-          },
-        ]);
-      }
-    };
-    initializeChat();
-  }, []);
-
-  useEffect(() => {
-    // Save messages to localStorage, but not the initial placeholder message
     if (messages.length > 1 || (messages.length === 1 && messages[0].id !== 'init')) {
       localStorage.setItem('chat_messages', JSON.stringify(messages));
     }
   }, [messages]);
 
   const handleSendMessage = async (inputText: string) => {
-    if (!inputText.trim() || isLoading || !chatRef.current) return;
+    if (!inputText.trim() || isLoading) return;
 
-    const chat = chatRef.current;
     setIsLoading(true);
 
     const userMessage: Message = {
@@ -76,64 +55,58 @@ const App: React.FC = () => {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const stream = await chat.sendMessageStream({ message: inputText });
-
-      const botMessageId = `bot-${Date.now()}`;
-      setMessages((prev) => [
-        ...prev,
-        { id: botMessageId, text: '', sender: Sender.BOT },
-      ]);
-      
-      let fullResponse = '';
-      for await (const chunk of stream) {
-        const chunkText = chunk.text;
-        fullResponse += chunkText;
-        setMessages((prevMessages) =>
-          prevMessages.map((msg) =>
-            msg.id === botMessageId ? { ...msg, text: fullResponse } : msg
-          )
-        );
-      }
-    } catch (error) {
-      console.error('Error sending message:', error);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `error-${Date.now()}`,
-          text: 'Oops, algo salió mal. Por favor, inténtalo de nuevo.',
-          sender: Sender.BOT,
+      // AQUÍ ESTÁ EL CAMBIO PRINCIPAL: Llamada a tu propio backend
+      const response = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      ]);
+        body: JSON.stringify({
+          // Tu backend original esperaba un 'model_id' y un 'message'
+          // Puedes ajustar el model_id si tu backend lo requiere
+          model_id: "google/gemini-pro", 
+          message: inputText,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error del servidor: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Extraemos la respuesta del bot. Asumimos que tu backend devuelve una estructura
+      // similar a la de Hugging Face, como [{ "generated_text": "..." }]
+      const botText = data[0]?.generated_text || JSON.stringify(data);
+
+      const botMessage: Message = {
+        id: `bot-${Date.now()}`,
+        text: botText,
+        sender: Sender.BOT,
+      };
+      setMessages((prev) => [...prev, botMessage]);
+
+    } catch (error) {
+      console.error('Error al enviar el mensaje:', error);
+      const errorMessage: Message = {
+        id: `error-${Date.now()}`,
+        text: 'Oops, algo salió mal al contactar al asistente. Por favor, inténtalo de nuevo.',
+        sender: Sender.BOT,
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
   };
   
-  const handleNewChat = async () => {
-    setIsLoading(true);
-    try {
-        const chat = await startChatSession();
-        chatRef.current = chat;
-        const welcomeMessage = {
-            id: 'init',
-            text: '¡Hola! Soy tu asistente virtual Gemini. ¿En qué puedo ayudarte hoy?',
-            sender: Sender.BOT,
-        };
-        setMessages([welcomeMessage]);
-        localStorage.removeItem('chat_messages');
-    } catch (error) {
-        console.error('Failed to start a new chat session:', error);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: 'error-new-chat',
-            text: 'No se pudo iniciar un nuevo chat. Por favor, inténtalo de nuevo.',
-            sender: Sender.BOT,
-          },
-        ]);
-    } finally {
-        setIsLoading(false);
-    }
+  const handleNewChat = () => {
+    const welcomeMessage = {
+      id: 'init',
+      text: '¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?',
+      sender: Sender.BOT,
+    };
+    setMessages([welcomeMessage]);
+    localStorage.removeItem('chat_messages');
   };
 
   return (
