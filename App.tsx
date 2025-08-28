@@ -8,8 +8,8 @@ import TypingIndicator from './components/TypingIndicator';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-// ... (La función getInitialMessages sigue igual) ...
 const getInitialMessages = (): Message[] => {
+    // ... (la función es la misma, no cambia)
     try {
       const savedMessages = localStorage.getItem('chat_messages');
       if (savedMessages) {
@@ -17,14 +17,12 @@ const getInitialMessages = (): Message[] => {
         if (Array.isArray(parsedMessages) && parsedMessages.length > 0) return parsedMessages;
       }
     } catch (error) { console.error('Fallo al leer los mensajes', error); }
-    return [{ id: 'init', text: '¡Hola! Soy tu asistente Multi-IA. Elige un modelo y empecemos a conversar.', sender: Sender.BOT }];
+    return [{ id: 'init', text: '¡Hola! Soy tu asistente. Puedes chatear conmigo o crear una imagen usando el comando /imagen seguido de tu descripción.', sender: Sender.BOT }];
 };
-
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [selectedAI, setSelectedAI] = useState('gemini'); // gemini, llama, o mistral
 
   useEffect(() => {
     localStorage.setItem('chat_messages', JSON.stringify(messages));
@@ -38,33 +36,39 @@ const App: React.FC = () => {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-        let endpoint = '';
-        let body: any = { message: inputText, history: messages };
+        let response: Response;
+        
+        // Si el usuario usa el comando /imagen...
+        if (inputText.toLowerCase().startsWith('/imagen ')) {
+            const prompt = inputText.substring(8).trim();
+            response = await fetch(`${API_BASE}/api/generate-image`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt }),
+            });
 
-        if (selectedAI === 'gemini') {
-            endpoint = `${API_BASE}/api/chat/gemini`;
-        } else {
-            endpoint = `${API_BASE}/api/chat/huggingface`;
-            body.model_id = selectedAI === 'llama'
-             ? 'meta/meta-llama-3.1-8b-instruct'
-              : 'mistralai/mistral-7b-instruct-v0.2';
+            if (!response.ok) throw new Error(`Error del servidor de imágenes: ${response.statusText}`);
+            
+            // La respuesta es una imagen, no un JSON
+            const imageBlob = await response.blob();
+            const imageUrl = URL.createObjectURL(imageBlob);
+            const botMessage: Message = { id: `bot-${Date.now()}`, imageUrl, sender: Sender.BOT };
+            setMessages((prev) => [...prev, botMessage]);
+
+        } else { // Si no, es un chat normal con Gemini
+            response = await fetch(`${API_BASE}/api/chat/gemini`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: inputText, history: messages }),
+            });
+
+            if (!response.ok) throw new Error(`Error del servidor de chat: ${response.statusText}`);
+            
+            const data = await response.json();
+            const botText = data[0]?.generated_text || JSON.stringify(data);
+            const botMessage: Message = { id: `bot-${Date.now()}`, text: botText, sender: Sender.BOT };
+            setMessages((prev) => [...prev, botMessage]);
         }
-
-        const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-
-        if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.detail || 'Error en la respuesta del servidor');
-        }
-
-        const data = await response.json();
-        const botText = data[0]?.generated_text || JSON.stringify(data);
-        const botMessage: Message = { id: `bot-${Date.now()}`, text: botText, sender: Sender.BOT };
-        setMessages((prev) => [...prev, botMessage]);
 
     } catch (error) {
         const errorMessage: Message = { id: `error-${Date.now()}`, text: `Oops, algo salió mal: ${error instanceof Error ? error.message : 'Error desconocido'}`, sender: Sender.BOT };
@@ -75,12 +79,12 @@ const App: React.FC = () => {
   };
   
   const handleNewChat = () => {
-    setMessages([{ id: 'init', text: '¡Hola! Soy tu asistente Multi-IA. Elige un modelo y empecemos a conversar.', sender: Sender.BOT }]);
+    setMessages([{ id: 'init', text: '¡Hola! Soy tu asistente. Puedes chatear conmigo o crear una imagen usando el comando /imagen seguido de tu descripción.', sender: Sender.BOT }]);
   };
 
   return (
     <div className="h-screen w-screen flex flex-col font-sans bg-gray-900 text-gray-100">
-      <Header onNewChat={handleNewChat} selectedAI={selectedAI} onAIChange={setSelectedAI} />
+      <Header onNewChat={handleNewChat} />
       <ChatWindow messages={messages} />
       {isLoading && <TypingIndicator />}
       <MessageInput onSendMessage={handleSendMessage} isLoading={isLoading} />
