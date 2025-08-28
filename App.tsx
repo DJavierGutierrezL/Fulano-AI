@@ -9,7 +9,6 @@ import TypingIndicator from './components/TypingIndicator';
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 const getInitialMessages = (): Message[] => {
-    // ... (la función es la misma, no cambia)
     try {
       const savedMessages = localStorage.getItem('chat_messages');
       if (savedMessages) {
@@ -17,7 +16,7 @@ const getInitialMessages = (): Message[] => {
         if (Array.isArray(parsedMessages) && parsedMessages.length > 0) return parsedMessages;
       }
     } catch (error) { console.error('Fallo al leer los mensajes', error); }
-    return [{ id: 'init', text: '¡Hola! Soy tu asistente. Puedes chatear conmigo o crear una imagen usando el comando /imagen seguido de tu descripción.', sender: Sender.BOT }];
+    return [{ id: 'init', text: '¡Hola! Soy Gemini. Puedes chatear conmigo o crear una imagen usando /imagen.', sender: Sender.BOT }];
 };
 
 const App: React.FC = () => {
@@ -38,7 +37,6 @@ const App: React.FC = () => {
     try {
         let response: Response;
         
-        // Si el usuario usa el comando /imagen...
         if (inputText.toLowerCase().startsWith('/imagen ')) {
             const prompt = inputText.substring(8).trim();
             response = await fetch(`${API_BASE}/api/generate-image`, {
@@ -49,14 +47,14 @@ const App: React.FC = () => {
 
             if (!response.ok) throw new Error(`Error del servidor de imágenes: ${response.statusText}`);
             
-            // La respuesta es una imagen, no un JSON
-            const imageBlob = await response.blob();
-            const imageUrl = URL.createObjectURL(imageBlob);
+            const data = await response.json();
+            // El backend ahora devuelve la imagen en formato base64
+            const imageUrl = `data:image/png;base64,${data.image_base64}`;
             const botMessage: Message = { id: `bot-${Date.now()}`, imageUrl, sender: Sender.BOT };
             setMessages((prev) => [...prev, botMessage]);
 
-        } else { // Si no, es un chat normal con Gemini
-            response = await fetch(`${API_BASE}/api/chat/gemini`, {
+        } else {
+            response = await fetch(`${API_BASE}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message: inputText, history: messages }),
@@ -79,7 +77,7 @@ const App: React.FC = () => {
   };
   
   const handleNewChat = () => {
-    setMessages([{ id: 'init', text: '¡Hola! Soy tu asistente. Puedes chatear conmigo o crear una imagen usando el comando /imagen seguido de tu descripción.', sender: Sender.BOT }]);
+    setMessages([{ id: 'init', text: '¡Hola! Soy Gemini. Puedes chatear conmigo o crear una imagen usando /imagen.', sender: Sender.BOT }]);
   };
 
   return (

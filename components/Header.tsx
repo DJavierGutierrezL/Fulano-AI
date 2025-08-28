@@ -3,12 +3,9 @@ import React from 'react';
 import { BotIcon } from './icons/BotIcon';
 import { NewChatIcon } from './icons/NewChatIcon';
 
-interface HeaderProps {
-    onNewChat: () => void;
-}
+interface HeaderProps { onNewChat: () => void; }
 
 const Header: React.FC<HeaderProps> = ({ onNewChat }) => {
-    // ... (El código es el mismo que tenías antes de añadir el selector)
     return (
         <header className="bg-gradient-to-r from-brand-secondary to-brand-primary shadow-lg p-4 flex items-center justify-between shrink-0">
             <div className="flex items-center space-x-3">
@@ -16,7 +13,7 @@ const Header: React.FC<HeaderProps> = ({ onNewChat }) => {
                     <BotIcon className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                    <h1 className="text-xl font-bold text-white">Asistente Virtual</h1>
+                    <h1 className="text-xl font-bold text-white">Asistente Virtual Gemini</h1>
                     <p className="text-sm text-green-300">● En línea</p>
                 </div>
             </div>
