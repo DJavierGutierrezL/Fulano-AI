@@ -46,8 +46,8 @@ const App: React.FC = () => {
         } else {
             endpoint = `${API_BASE}/api/chat/huggingface`;
             body.model_id = selectedAI === 'llama' 
-                ? 'meta-llama/Llama-3.1-8B-Instruct' 
-                : 'mistralai/Mistral-7B-Instruct-v0.2';
+              ? 'microsoft/DialoGPT-medium' // <-- ¡CAMBIA A ESTE MODELO PARA LA PRUEBA!
+               : 'mistralai/Mistral-7B-Instruct-v0.2';
         }
 
         const response = await fetch(endpoint, {
