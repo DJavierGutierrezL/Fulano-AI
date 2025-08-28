@@ -1,5 +1,4 @@
-// src/App.tsx - CÓDIGO ACTUALIZADO
-
+// src/App.tsx
 import React, { useState, useEffect } from 'react';
 import { Sender, type Message } from './types';
 import Header from './components/Header';
@@ -7,111 +6,81 @@ import ChatWindow from './components/ChatWindow';
 import MessageInput from './components/MessageInput';
 import TypingIndicator from './components/TypingIndicator';
 
-// Esta variable ya la tenías, se asegura de usar la URL de tu backend en Render
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
+// ... (La función getInitialMessages sigue igual) ...
 const getInitialMessages = (): Message[] => {
-  try {
-    const savedMessages = localStorage.getItem('chat_messages');
-    if (savedMessages) {
-      const parsedMessages = JSON.parse(savedMessages);
-      if (Array.isArray(parsedMessages) && parsedMessages.length > 0) {
-        return parsedMessages;
+    try {
+      const savedMessages = localStorage.getItem('chat_messages');
+      if (savedMessages) {
+        const parsedMessages = JSON.parse(savedMessages);
+        if (Array.isArray(parsedMessages) && parsedMessages.length > 0) return parsedMessages;
       }
-    }
-  } catch (error) {
-    console.error('Fallo al leer los mensajes del localStorage', error);
-    localStorage.removeItem('chat_messages');
-  }
-  return [
-    {
-      id: 'init',
-      text: '¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?',
-      sender: Sender.BOT,
-    },
-  ];
+    } catch (error) { console.error('Fallo al leer los mensajes', error); }
+    return [{ id: 'init', text: '¡Hola! Soy tu asistente Multi-IA. Elige un modelo y empecemos a conversar.', sender: Sender.BOT }];
 };
+
 
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(getInitialMessages);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [selectedAI, setSelectedAI] = useState('gemini'); // gemini, llama, o mistral
 
   useEffect(() => {
-    if (messages.length > 1 || (messages.length === 1 && messages[0].id !== 'init')) {
-      localStorage.setItem('chat_messages', JSON.stringify(messages));
-    }
+    localStorage.setItem('chat_messages', JSON.stringify(messages));
   }, [messages]);
 
   const handleSendMessage = async (inputText: string) => {
     if (!inputText.trim() || isLoading) return;
 
     setIsLoading(true);
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: inputText,
-      sender: Sender.USER,
-    };
+    const userMessage: Message = { id: Date.now().toString(), text: inputText, sender: Sender.USER };
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      // AQUÍ ESTÁ EL CAMBIO PRINCIPAL: Llamada a tu propio backend
-      const response = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          // Tu backend original esperaba un 'model_id' y un 'message'
-          // Puedes ajustar el model_id si tu backend lo requiere
-          model_id: "microsoft/DialoGPT-medium", 
-          message: inputText,
-        }),
-      });
+        let endpoint = '';
+        let body: any = { message: inputText, history: messages };
 
-      if (!response.ok) {
-        throw new Error(`Error del servidor: ${response.statusText}`);
-      }
+        if (selectedAI === 'gemini') {
+            endpoint = `${API_BASE}/api/chat/gemini`;
+        } else {
+            endpoint = `${API_BASE}/api/chat/huggingface`;
+            body.model_id = selectedAI === 'llama' 
+                ? 'meta-llama/Llama-3.1-8B-Instruct' 
+                : 'mistralai/Mistral-7B-Instruct-v0.2';
+        }
 
-      const data = await response.json();
-      
-      // Extraemos la respuesta del bot. Asumimos que tu backend devuelve una estructura
-      // similar a la de Hugging Face, como [{ "generated_text": "..." }]
-      const botText = data[0]?.generated_text || JSON.stringify(data);
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
 
-      const botMessage: Message = {
-        id: `bot-${Date.now()}`,
-        text: botText,
-        sender: Sender.BOT,
-      };
-      setMessages((prev) => [...prev, botMessage]);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Error en la respuesta del servidor');
+        }
+
+        const data = await response.json();
+        const botText = data[0]?.generated_text || JSON.stringify(data);
+        const botMessage: Message = { id: `bot-${Date.now()}`, text: botText, sender: Sender.BOT };
+        setMessages((prev) => [...prev, botMessage]);
 
     } catch (error) {
-      console.error('Error al enviar el mensaje:', error);
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        text: 'Oops, algo salió mal al contactar al asistente. Por favor, inténtalo de nuevo.',
-        sender: Sender.BOT,
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+        const errorMessage: Message = { id: `error-${Date.now()}`, text: `Oops, algo salió mal: ${error instanceof Error ? error.message : 'Error desconocido'}`, sender: Sender.BOT };
+        setMessages((prev) => [...prev, errorMessage]);
     } finally {
-      setIsLoading(false);
+        setIsLoading(false);
     }
   };
   
   const handleNewChat = () => {
-    const welcomeMessage = {
-      id: 'init',
-      text: '¡Hola! Soy tu asistente virtual. ¿En qué puedo ayudarte hoy?',
-      sender: Sender.BOT,
-    };
-    setMessages([welcomeMessage]);
-    localStorage.removeItem('chat_messages');
+    setMessages([{ id: 'init', text: '¡Hola! Soy tu asistente Multi-IA. Elige un modelo y empecemos a conversar.', sender: Sender.BOT }]);
   };
 
   return (
     <div className="h-screen w-screen flex flex-col font-sans bg-gray-900 text-gray-100">
-      <Header onNewChat={handleNewChat} />
+      <Header onNewChat={handleNewChat} selectedAI={selectedAI} onAIChange={setSelectedAI} />
       <ChatWindow messages={messages} />
       {isLoading && <TypingIndicator />}
       <MessageInput onSendMessage={handleSendMessage} isLoading={isLoading} />
