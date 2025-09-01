@@ -1,5 +1,5 @@
 // src/App.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sender, type Message } from './types';
 import Header from './components/Header';
 import ChatWindow from './components/ChatWindow';
@@ -8,140 +8,115 @@ import TypingIndicator from './components/TypingIndicator';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-const getInitialMessages = (): Message[] => {
-  try {
-    const savedMessages = localStorage.getItem('chat_messages');
-    if (savedMessages) {
-      const parsedMessages = JSON.parse(savedMessages);
-      if (Array.isArray(parsedMessages) && parsedMessages.length > 0) return parsedMessages;
-    }
-  } catch (error) {
-    console.error('Fallo al leer los mensajes', error);
-  }
-  return [{
-    id: 'init',
-    text: '¡Hola! Soy tu asistente. Puedes chatear conmigo o usar comandos como /imagen o /faceswap.',
-    sender: Sender.BOT
-  }];
-};
-
 const App: React.FC = () => {
-  const [messages, setMessages] = useState<Message[]>(getInitialMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [conversationId, setConversationId] = useState<string | null>(
-    () => localStorage.getItem('conversationId')
-  );
+  const [conversationId, setConversationId] = useState<string | null>(() => localStorage.getItem('conversationId'));
 
-  // Guardamos mensajes en localStorage
-  useEffect(() => {
-    localStorage.setItem('chat_messages', JSON.stringify(messages));
-  }, [messages]);
+  const startNewConversation = () => {
+    localStorage.removeItem('conversationId');
+    setConversationId(null);
+    setMessages([{ id: 'init', text: '¡Hola! Soy Fulano, tu asistente con memoria. ¿En qué te ayudo hoy?', sender: Sender.BOT }]);
+  };
 
-  // Guardamos el ID de la conversación si cambia
   useEffect(() => {
+    const loadHistory = async (id: string) => {
+      setIsLoading(true);
+      try {
+        const response = await fetch(`${API_BASE}/api/history/${id}`);
+        if (response.ok) {
+          const historyMessages = await response.json();
+          // El backend ahora devuelve 'text', por lo que no se necesita mapeo
+          if (historyMessages.length > 0) {
+            setMessages(historyMessages);
+          } else {
+            startNewConversation();
+          }
+        } else {
+          startNewConversation();
+        }
+      } catch (error) {
+        console.error("Error al cargar el historial:", error);
+        startNewConversation();
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
     if (conversationId) {
-      localStorage.setItem('conversationId', conversationId);
+      loadHistory(conversationId);
     } else {
-      localStorage.removeItem('conversationId');
+      startNewConversation();
     }
-  }, [conversationId]);
+  }, []);
 
   const handleSendMessage = async (inputText: string) => {
     if (!inputText.trim() || isLoading) return;
 
     setIsLoading(true);
     const userMessage: Message = { id: Date.now().toString(), text: inputText, sender: Sender.USER };
-    setMessages((prev) => [...prev, userMessage]);
+    setMessages(prevMessages => [...prevMessages, userMessage]);
+
+    let botMessage: Message = { id: `error-${Date.now()}`, text: 'Oops, algo salió mal.', sender: Sender.BOT };
 
     try {
       let response: Response;
-
-      // --- FACE SWAP ---
-      if (inputText.toLowerCase().startsWith('/faceswap ')) {
-        const urls = inputText.substring(10).trim().split(' ');
-        if (urls.length < 2) throw new Error("El comando /faceswap requiere dos URLs separadas por un espacio.");
-
-        const source_image_url = urls[0];
-        const target_image_url = urls[1];
-
-        response = await fetch(`${API_BASE}/api/face-swap`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ source_image_url, target_image_url }),
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || "Error en el servidor de face swap");
-        }
-
-        const data = await response.json();
-        const imageUrl = `data:image/jpeg;base64,${data.image_base64}`;
-        const botMessage: Message = { id: `bot-${Date.now()}`, imageUrl, sender: Sender.BOT };
-        setMessages((prev) => [...prev, botMessage]);
-
-      // --- GENERAR IMAGEN ---
-      } else if (inputText.toLowerCase().startsWith('/imagen ')) {
+      
+      if (inputText.toLowerCase().startsWith('/imagen ')) {
         const prompt = inputText.substring(8).trim();
         response = await fetch(`${API_BASE}/api/generate-image`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt }),
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt }),
         });
-
-        if (!response.ok) throw new Error(`Error del servidor de imágenes: ${response.statusText}`);
-
+        if (!response.ok) throw new Error(`Error del servidor de imágenes`);
         const data = await response.json();
-        const imageUrl = `data:image/png;base64,${data.image_base64}`;
-        const botMessage: Message = { id: `bot-${Date.now()}`, imageUrl, sender: Sender.BOT };
-        setMessages((prev) => [...prev, botMessage]);
-
-      // --- CHAT NORMAL ---
-      } else {
-        response = await fetch(`${API_BASE}/api/chat`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            message: inputText,
-            history: messages,
-            conversation_id: conversationId, // <-- ENVIAMOS EL ID DE LA CONVERSACIÓN
-          }),
+        botMessage = { id: `bot-${Date.now()}`, imageUrl: `data:image/png;base64,${data.image_base64}`, sender: Sender.BOT };
+      
+      } else if (inputText.toLowerCase().startsWith('/faceswap ')) {
+        const urls = inputText.substring(10).trim().split(' ');
+        if (urls.length < 2) throw new Error("El comando /faceswap requiere dos URLs.");
+        const [source_image_url, target_image_url] = urls;
+        response = await fetch(`${API_BASE}/api/face-swap`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ source_image_url, target_image_url }),
         });
-
-        if (!response.ok) throw new Error(`Error del servidor de chat: ${response.statusText}`);
-
-        const data = await response.json();
-        const botText = data[0]?.generated_text || JSON.stringify(data);
-        const newConversationId = data[0]?.conversation_id;
-
-        // Actualizamos el ID de la conversación si es nuevo
-        if (newConversationId && !conversationId) {
-          setConversationId(newConversationId);
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || "Error en el servidor de face swap");
         }
+        const data = await response.json();
+        botMessage = { id: `bot-${Date.now()}`, imageUrl: `data:image/jpeg;base64,${data.image_base64}`, sender: Sender.BOT };
 
-        const botMessage: Message = { id: `bot-${Date.now()}`, text: botText, sender: Sender.BOT };
-        setMessages((prev) => [...prev, botMessage]);
+      } else { // Lógica del Chat
+        response = await fetch(`${API_BASE}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: inputText, conversation_id: conversationId }),
+        });
+        if (!response.ok) throw new Error(`Error del servidor de chat`);
+        
+        const data = await response.json();
+        if (data.conversation_id && !conversationId) {
+            localStorage.setItem('conversationId', data.conversation_id);
+            setConversationId(data.conversation_id);
+        }
+        botMessage = { id: `bot-${Date.now()}`, text: data.generated_text, sender: Sender.BOT };
       }
+      setMessages(prevMessages => [...prevMessages, botMessage]);
+
     } catch (error) {
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        text: `Oops, algo salió mal: ${error instanceof Error ? error.message : 'Error desconocido'}`,
-        sender: Sender.BOT
-      };
-      setMessages((prev) => [...prev, errorMessage]);
+      botMessage = { id: `error-${Date.now()}`, text: `Oops, algo salió mal: ${error instanceof Error ? error.message : 'Error desconocido'}`, sender: Sender.BOT };
+      setMessages(prevMessages => [...prevMessages, botMessage]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleNewChat = () => {
-    setMessages([{ id: 'init', text: '¡Hola! Soy Gemini. ¿En qué puedo ayudarte?', sender: Sender.BOT }]);
-    setConversationId(null); // Reiniciamos el ID para empezar una nueva conversación
-  };
-
   return (
     <div className="h-screen w-screen flex flex-col font-sans bg-gray-900 text-gray-100">
-      <Header onNewChat={handleNewChat} />
+      <Header onNewChat={startNewConversation} />
       <ChatWindow messages={messages} />
       {isLoading && <TypingIndicator />}
       <MessageInput onSendMessage={handleSendMessage} isLoading={isLoading} />
